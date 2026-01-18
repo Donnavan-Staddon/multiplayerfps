@@ -2,57 +2,49 @@ const express = require('express');
 const app = express();
 const http = require('http').Server(app);
 const io = require('socket.io')(http);
-const path = require('path'); // Added for path handling
+const path = require('path');
 
-// UPDATED: This allows Render to find your index.html and assets
-// If your index.html is in the main folder, use '.' instead of 'public'
-app.use(express.static(__dirname)); 
+// This line tells Render that all your CSS, JS, and Models are inside the 'public' folder
+app.use(express.static(path.join(__dirname, 'public')));
 
+// This line specifically tells Render to serve your index.html when someone visits the site
 app.get('/', (req, res) => {
-    res.sendFile(path.join(__dirname, 'index.html'));
+    res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
 
 let players = {};
-
-const obstacles = [
-    { x: 0, z: -10, size: 3 },
-    { x: 10, z: 5, size: 2 },
-    { x: -10, z: 5, size: 2 },
-    { x: 5, z: 15, size: 2 },
-    { x: -5, z: -15, size: 2 },
-    { x: 0, z: 10, size: 3 },
-];
-
-const buildings = [
-    { x: -20, z: -10, w: 8, h: 12, d: 10 },
-    { x: 20, z: 10, w: 6, h: 20, d: 6 },
-    { x: 0, z: 25, w: 15, h: 8, d: 5 }
-];
 
 io.on('connection', (socket) => {
     console.log('Player connected:', socket.id);
 
     const team = Object.keys(players).length % 2 === 0 ? 'green' : 'brown';
-    const spawnX = team === 'green' ? -15 : 15;
     
     players[socket.id] = {
         id: socket.id,
         team: team,
-        x: spawnX, y: 0, z: 0,
+        x: 0, y: 0, z: 0,
         ry: 0, rx: 0,
         health: 100,
         weapon: 'sniper',
         isWalking: false,
-        kills: 0
+        kills: 0,
+        isProtected: false
     };
 
-    socket.emit('init', { id: socket.id, players, obstacles, buildings });
+    socket.emit('init', { id: socket.id, players });
     socket.broadcast.emit('newPlayer', players[socket.id]);
     io.emit('scoreUpdate', players);
 
     socket.on('move', (data) => {
         if (players[socket.id]) {
             Object.assign(players[socket.id], data);
+            socket.broadcast.emit('update', players[socket.id]);
+        }
+    });
+
+    socket.on('setProtection', (data) => {
+        if (players[socket.id]) {
+            players[socket.id].isProtected = data.protected;
             socket.broadcast.emit('update', players[socket.id]);
         }
     });
@@ -71,17 +63,15 @@ io.on('connection', (socket) => {
     socket.on('playerHit', (data) => {
         let victim = players[data.targetId];
         let shooter = players[socket.id];
-        if (!victim || !shooter) return;
+        if (!victim || !shooter || victim.isProtected) return;
+
         victim.health -= data.damage;
         if (victim.health <= 0) {
             shooter.kills++;
             io.emit('killMessage', { killer: socket.id, victim: data.targetId, isHeadshot: data.damage >= 100 });
             io.emit('scoreUpdate', players);
-            const respawnX = victim.team === 'green' ? -15 : 15;
             victim.health = 100;
-            victim.x = respawnX;
-            victim.z = 0;
-            io.emit('playerRespawned', { id: victim.id, x: victim.x, z: victim.z, isHeadshot: data.damage >= 100 });
+            io.emit('playerRespawned', { id: victim.id, team: victim.team, isHeadshot: data.damage >= 100 });
         } else {
             io.emit('healthUpdate', { id: victim.id, health: victim.health });
         }
@@ -94,6 +84,5 @@ io.on('connection', (socket) => {
     });
 });
 
-// UPDATED: Use process.env.PORT for Render compatibility
 const PORT = process.env.PORT || 3000;
 http.listen(PORT, () => console.log(`Server running on port ${PORT}`));
