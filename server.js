@@ -2,8 +2,15 @@ const express = require('express');
 const app = express();
 const http = require('http').Server(app);
 const io = require('socket.io')(http);
+const path = require('path'); // Added for path handling
 
-app.use(express.static('public'));
+// UPDATED: This allows Render to find your index.html and assets
+// If your index.html is in the main folder, use '.' instead of 'public'
+app.use(express.static(__dirname)); 
+
+app.get('/', (req, res) => {
+    res.sendFile(path.join(__dirname, 'index.html'));
+});
 
 let players = {};
 
@@ -16,7 +23,6 @@ const obstacles = [
     { x: 0, z: 10, size: 3 },
 ];
 
-// ADDED: Buildings Data
 const buildings = [
     { x: -20, z: -10, w: 8, h: 12, d: 10 },
     { x: 20, z: 10, w: 6, h: 20, d: 6 },
@@ -40,7 +46,6 @@ io.on('connection', (socket) => {
         kills: 0
     };
 
-    // UPDATED: Included buildings in the init data
     socket.emit('init', { id: socket.id, players, obstacles, buildings });
     socket.broadcast.emit('newPlayer', players[socket.id]);
     io.emit('scoreUpdate', players);
@@ -89,5 +94,6 @@ io.on('connection', (socket) => {
     });
 });
 
-const PORT = 3000;
-http.listen(PORT, () => console.log(`Server running on http://localhost:${PORT}`));
+// UPDATED: Use process.env.PORT for Render compatibility
+const PORT = process.env.PORT || 3000;
+http.listen(PORT, () => console.log(`Server running on port ${PORT}`));
